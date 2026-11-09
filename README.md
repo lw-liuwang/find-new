@@ -1,153 +1,79 @@
 # find-new
 
-按关键词搜索新闻，采集公开 RSS / Atom / JSON API，去重后保存到 SQLite，导出 JSON 和 Markdown。Python 3.11+，不需要安装第三方依赖，也不需要 API Key。
+搜索新闻、跟踪模型和项目更新，并保留可查询的本地历史。find-new 读取 Google News 搜索 RSS、RSS/Atom/RDF 订阅和公开 JSON API，按链接去重后保存到 SQLite，导出 JSON 与 Markdown。
 
-## 使用
+需要 **Python 3.11+**，直接运行即可，无需安装第三方依赖。默认来源无需登录或 API Key，结果包含标题、链接、时间和来源提供的描述。
 
-在仓库根目录运行：
+## 开始使用
 
 ```bash
-# 搜索最近三天的新闻；结果会同时保存到本地数据库。
+git clone https://github.com/lw-liuwang/find-new.git
+cd find-new
+python3 -m find_new check
 python3 -m find_new search 'TPU OR 推理加速'
-
-# 指定时间范围、语言和地区。
-python3 -m find_new search 'GPU kernel' --days 7 --language en-US --region US
-
-# 采集 sources.json 中的所有启用来源。
-python3 -m find_new collect
-
-# 查询已经保存的内容，不访问网络。
-python3 -m find_new list --query TPU --limit 20 --format markdown
 ```
 
-`search` 使用 Google News 搜索 RSS，并非通用网页搜索。网络环境需要能够访问所选来源。
+`check` 离线检查来源配置。`search` 通过 Google News 搜索最近三天的新闻并保存；运行机器需要能够访问 Google News。
 
-默认输出：
+```bash
+# 按配置采集全部启用来源。
+python3 -m find_new collect
+
+# 搜索最近七天的英文新闻。
+python3 -m find_new search 'GPU kernel' --days 7 --language en-US --region US
+
+# 查询本地历史，不访问网络。
+python3 -m find_new list --query Qwen --limit 20 --format markdown
+```
+
+各命令的 `--help` 会显示参数用途和默认值。
+
+## 选择来源
+
+[sources.json](sources.json) 默认包含 AI 推理与算力新闻、vLLM Releases、ModelScope 新闻和 Qwen 模型更新。修改 `query` 调整新闻关键词，修改 ModelScope 查询的 `body.Path` 跟踪其他组织。
+
+编辑后运行 `python3 -m find_new check`。添加订阅、映射 JSON 字段和配置 ModelScope 分页的方法见 [来源配置](docs/sources.md)。
+
+## 读取结果
 
 | 文件 | 内容 |
 | --- | --- |
-| `data/find-new.sqlite3` | 历史条目、首次/最近发现时间、HTTP 缓存 |
-| `data/latest.json` | 本轮结果、各来源状态、新增入库数量 |
-| `data/latest.md` | 本轮结果的 Markdown 版本 |
+| `data/find-new.sqlite3` | 历史条目、首次与最近发现时间、HTTP 缓存 |
+| `data/latest.json` | 本轮条目、来源状态、新增入库数量 |
+| `data/latest.md` | 本轮条目的 Markdown 报告 |
 
-这些运行数据不会提交到 Git。重复采集同一链接会更新已有记录，保留首次发现时间。`latest.*` 反映本轮匹配结果，可能包含以前已入库的条目；`new_count` 只统计首次入库的链接。历史内容通过 `list` 查询。
+`search` 和 `collect` 都会覆盖输出目录中的 `latest.*`，历史仍保留在 SQLite。`count` 表示本轮去重后的条数，`new_count` 只统计首次入库的链接。重复搜索可以返回同样的结果，同时显示新增为零。
 
-每个命令都支持 `--db 路径` 和 `--format json|markdown`；`collect` 和 `search` 还支持 `--output-dir 目录`。例如：
+同轮多个来源返回相同链接时，采用配置顺序中最先出现的条目，入库与导出使用同一内容。后续采集会更新标题、来源、描述和最近发现时间，保留首次发现时间。不同链接报道的同一事件不会合并。
+
+需要分开保存时，可指定数据库和报告目录：
 
 ```bash
 python3 -m find_new collect --config sources.json --db data/custom.sqlite3 --output-dir data/custom
 ```
 
-## 配置信息源
+采集与查询默认向标准输出打印 JSON，进度和错误写入标准错误。`--format markdown` 可切换输出格式。`data/` 已被 Git 忽略。
 
-编辑 `sources.json`。`window_hours` 是采集时间范围，默认 72 小时；`enabled: false` 可暂停一个来源。
+## 每日采集
 
-默认来源是 AI 推理与算力新闻、vLLM 发布、ModelScope 新闻和 ModelScope 上 Qwen 的模型更新。
+[Collect](https://github.com/lw-liuwang/find-new/actions/workflows/collect.yml) 工作流计划每天北京时间 **08:17** 运行，也可在 Actions 页面手动触发。GitHub 调度可能延迟。
 
-### ModelScope 模型更新
+在运行页面查看 Summary 中的条目和失败来源，从 Artifacts 下载 `find-new-运行编号`，其中包含报告与数据库，保留 30 天。
 
-已接入无需登录的公开模型列表查询接口：
+工作流通过 Actions cache 恢复数据库。缓存被清理后会重新建立去重历史；需要长期保存历史时，请下载数据库备份。采集结果通过运行产物交付，不提交到仓库。
 
-```json
-{
-  "name": "ModelScope · Qwen 模型更新",
-  "kind": "json",
-  "url": "https://modelscope.ai/api/v1/models",
-  "method": "PUT",
-  "body": {"Path": "Qwen", "PageNumber": 1, "PageSize": 20},
-  "items_path": "Data.Models",
-  "fields": {
-    "title": "{Path}/{Name}",
-    "url": "https://modelscope.ai/models/{Path}/{Name}",
-    "description": "{Description} · 下载 {Downloads} · 收藏 {Stars}",
-    "published": "LastUpdatedTime"
-  }
-}
-```
-
-把 `body.Path` 改为其他组织名即可跟踪对应列表。默认读取第一页 20 条，列表包含置顶项，因此不保证覆盖组织的所有新模型；需要更多内容时增大 `PageSize` 或添加具有不同 `PageNumber` 的来源。时间使用模型的 `LastUpdatedTime`，表示仓库更新，并非模型首次发布时间。默认使用已实测可达的国际站 `modelscope.ai`；可按网络情况把 API 和条目链接改为 `modelscope.cn`。
-
-这一来源提供模型更新，不提供论文日榜。
-
-### 关键词新闻
-
-```json
-{
-  "name": "国内模型新闻",
-  "kind": "google_news",
-  "query": "DeepSeek OR Qwen OR 魔搭",
-  "language": "zh-CN",
-  "region": "CN"
-}
-```
-
-程序会给查询加上时间范围。可使用 `OR`、引号等 Google News 搜索语法。返回链接可能是 Google News 中转地址，首版保留该地址。
-
-### RSS / Atom / RDF
-
-```json
-{
-  "name": "vLLM Releases",
-  "kind": "rss",
-  "url": "https://github.com/vllm-project/vllm/releases.atom"
-}
-```
-
-三种 XML 格式共用 `rss` 类型。条目包含标题、链接、来源、发布时间，以及订阅源提供的描述。没有有效日期的条目仍会保留，但明确标记为“未提供”。
-
-### JSON API
-
-```json
-{
-  "name": "Example API",
-  "kind": "json",
-  "url": "https://example.com/api/articles",
-  "items_path": "data.articles",
-  "fields": {
-    "title": "title",
-    "url": "https://example.com/articles/{id}",
-    "description": "summary",
-    "published": "created_at"
-  }
-}
-```
-
-`items_path` 使用点分路径定位列表；根节点本身是列表时省略它。字段映射支持 `data.title` 这样的嵌套路径，以及 `{id}` 形式的模板。日期支持 RSS 日期、ISO 8601 和 Unix 秒时间戳。
-
-JSON 来源默认使用 GET。对于公开的只读查询接口，可配置 `method: "POST"` 或 `"PUT"`，并用 `body` 提供 JSON 查询条件。不要用采集配置调用创建、修改或删除资源的接口。
-
-## 定时采集
-
-GitHub Actions 的 **Collect** 工作流每天计划在北京时间 **08:17** 执行，也可以在 Actions 页面手动运行。GitHub 调度可能延迟。
-
-- 修改仓库中的 `sources.json` 即可调整定时采集来源。
-- 在每次运行的 Artifacts 中下载 `find-new-运行编号`，里面包含 JSON、Markdown 和 SQLite 数据库。
-- 数据库使用 Actions cache 在运行间恢复，下载的产物保留 30 天。缓存不是永久存储；缓存被清理后会重新建立去重历史，需要长期保存时请定期下载数据库。
-- 工作流只需要读取仓库，不会自动提交数据或部署网页。
-
-也可以在自己的机器上配置 cron：
+使用本机 cron 时，先手动采集一次以创建 `data` 目录，再按机器时区配置：
 
 ```cron
 17 8 * * * cd /path/to/find-new && /usr/bin/python3 -m find_new collect >> data/collect.log 2>&1
 ```
 
-首次配置 cron 前先手动运行一次，创建 `data` 目录。机器时区决定 cron 的执行时间。
+## 失败处理与覆盖范围
 
-## 抓取行为
+单个来源失败会记录错误并继续采集。`collect` / `search` 返回 0 表示至少一个来源成功获取并解析，可能没有符合时间范围的条目。全部来源失败，或配置、存储、导出发生错误时返回 1；命令行参数用法错误返回 2。
 
-- 同一主机的请求至少间隔 2 秒，单次请求超时 20 秒。
-- 利用服务端 ETag / Last-Modified 缓存；返回 304 时复用本地响应。
-- 403 本次不重试；429 和 5xx 最多重试一次，遵守有效的 `Retry-After`。要求等待超过 60 秒时跳过该来源。
-- 每个响应最多读取 5 MiB。单个来源失败会记录错误，继续处理其他来源；全部来源失败时命令退出码为 1。
-- 去重基于链接，去除 UTM 等常见跟踪参数；不做跨媒体的语义去重。
-- 只处理订阅/API 提供的标题和描述，不额外下载文章全文，不使用登录 Cookie，不调用模型生成摘要。
+同一主机的请求至少间隔两秒。网络或 HTTP 协议错误、429、5xx 最多重试一次，403 本次不重试。程序遵守有效的 `Retry-After`；要求等待超过 60 秒时跳过该来源。GET 支持 ETag 和 Last-Modified 条件请求，响应体超过 5 MiB 时停止下载。网络操作使用 20 秒超时，整轮耗时还取决于来源数量和重试。
 
-## 验证
+日期缺失或无效的条目仍会保留，报告标记为“未提供”。搜索范围由 Google News 决定，链接可能是 Google 中转地址。ModelScope 默认查询组织列表第一页 20 条，其中包含置顶项，因此无法保证覆盖全部更新；时间表示仓库更新，不等于模型首次发布。
 
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-测试使用本地 HTTP 服务和固定数据，不依赖外网。覆盖订阅格式解析、JSON 字段映射、持久化去重、条件请求、限流、来源失败隔离和命令行连续运行。
-
-主要代码：`find_new/feeds.py` 解析与配置，`find_new/http.py` 网络请求，`find_new/store.py` 存储，`find_new/__main__.py` 命令行与导出。
+项目采集订阅和 API 提供的内容，不额外下载文章全文。开发与验证方法见 [CONTRIBUTING.md](CONTRIBUTING.md)。

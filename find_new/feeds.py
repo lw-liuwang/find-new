@@ -198,7 +198,7 @@ def load_config(path):
         if not isinstance(source.get("enabled", True), bool):
             raise ValueError(f"{name}: enabled 必须是布尔值")
         kind = source.get("kind")
-        if kind not in {"rss", "json", "google_news"}:
+        if not isinstance(kind, str) or kind not in {"rss", "json", "google_news"}:
             raise ValueError(f"{name}: 不支持的 kind")
         if kind == "google_news":
             for field in ("query", "language", "region"):
@@ -217,7 +217,7 @@ def load_config(path):
             if not isinstance(source.get("items_path", ""), str):
                 raise ValueError(f"{name}: items_path 必须是字符串")
         method = source.get("method", "GET")
-        if method not in {"GET", "POST", "PUT"}:
+        if not isinstance(method, str) or method not in {"GET", "POST", "PUT"}:
             raise ValueError(f"{name}: method 只支持 GET、POST、PUT")
         if method != "GET" and kind != "json":
             raise ValueError(f"{name}: 只有 JSON 来源可以配置 POST/PUT 查询")
