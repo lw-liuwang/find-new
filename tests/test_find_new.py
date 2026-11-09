@@ -1,12 +1,14 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
 from datetime import datetime, timezone
+from email.utils import format_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -92,12 +94,13 @@ class StorageTests(unittest.TestCase):
         item = {"url": "https://example.com/a", "title": "GPU kernels", "description": "v1",
                 "source": "feed", "published": None}
         self.assertEqual(self.store.save([item], "2026-11-08T00:00:00+00:00"), 1)
-        self.assertEqual(self.store.save([{**item, "description": "v2"}],
+        self.assertEqual(self.store.save([{**item, "source": "renamed feed", "description": "v2"}],
                                          "2026-11-09T00:00:00+00:00"), 0)
         self.store.close()
         self.store = Store(self.path)
         row, = self.store.search("GPU")
         self.assertEqual(row["description"], "v2")
+        self.assertEqual(row["source"], "renamed feed")
         self.assertEqual(row["first_seen"], "2026-11-08T00:00:00+00:00")
         self.assertEqual(row["last_seen"], "2026-11-09T00:00:00+00:00")
         self.assertEqual(self.store.search("%"), [])
@@ -110,6 +113,35 @@ class StorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "kind"):
             main(["collect", "--config", str(config), "--db", str(db)])
         self.assertFalse(db.exists())
+
+    def test_configuration_type_errors_are_reported_without_tracebacks(self):
+        for field, value in [("kind", []), ("method", {})]:
+            with self.subTest(field=field):
+                source = {"name": "invalid source", "kind": "rss", "url": "https://example.com/feed",
+                          field: value}
+                config = Path(self.temporary.name) / "invalid.json"
+                config.write_text(json.dumps({"sources": [source]}))
+                result = subprocess.run([sys.executable, "-m", "find_new", "check", "--config", str(config)],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("invalid source", result.stderr)
+                self.assertIn(field, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_check_reports_configuration_without_creating_a_database(self):
+        directory = Path(self.temporary.name)
+        config = directory / "sources.json"
+        config.write_text(json.dumps({"window_hours": 48, "sources": [
+            {"name": "active", "kind": "rss", "url": "https://example.invalid/feed"},
+            {"name": "paused", "kind": "rss", "url": "https://example.invalid/paused", "enabled": False},
+        ]}))
+        before = set(directory.iterdir())
+        result = subprocess.run([sys.executable, "-m", "find_new", "check", "--config", str(config)],
+                                capture_output=True, text=True, check=True, cwd=directory,
+                                env={**os.environ, "PYTHONPATH": str(FIXTURES.parent.parent)})
+        report = json.loads(result.stdout)
+        self.assertEqual((report["sources"], report["enabled_sources"], report["window_hours"]), (2, 1, 48))
+        self.assertEqual(set(directory.iterdir()), before)
 
 
 class HTTPTests(unittest.TestCase):
@@ -125,7 +157,9 @@ class HTTPTests(unittest.TestCase):
             def do_PUT(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 HTTPTests.put_requests.append(body)
-                payload = (FIXTURES / "modelscope.json").read_bytes()
+                data = json.loads((FIXTURES / "modelscope.json").read_bytes())
+                data["Data"]["Models"][0]["LastUpdatedTime"] = int(HTTPTests.published_at.timestamp())
+                payload = json.dumps(data).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(payload)))
@@ -137,6 +171,17 @@ class HTTPTests(unittest.TestCase):
                 status = 200
                 headers = {}
                 body = (FIXTURES / "rss.xml").read_bytes()
+                body = body.replace(b"Mon, 09 Nov 2026 01:00:00 GMT",
+                                    format_datetime(HTTPTests.published_at, usegmt=True).encode())
+                if self.path == "/truncated":
+                    self.send_response(200)
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.end_headers()
+                    self.wfile.write(b"5\r\n<rss>\r\n")
+                    self.close_connection = True
+                    return
+                if self.path in {"/first", "/second"}:
+                    body = body.replace(b"Inference &amp; GPU update", self.path[1:].encode())
                 if self.path == "/cached":
                     headers["ETag"] = '"v1"'
                     if self.headers.get("If-None-Match") == '"v1"':
@@ -173,6 +218,7 @@ class HTTPTests(unittest.TestCase):
     def setUp(self):
         self.requests.clear()
         self.put_requests.clear()
+        HTTPTests.published_at = datetime.now(timezone.utc).replace(microsecond=0)
         self.temporary = tempfile.TemporaryDirectory()
         self.directory = Path(self.temporary.name)
         self.store = Store(self.directory / "items.sqlite3")
@@ -211,6 +257,28 @@ class HTTPTests(unittest.TestCase):
         self.assertTrue(any(item["title"] == "Without a date" for item in report["items"]))
         self.assertIn("bad", markdown(report))
 
+    def test_truncated_chunked_response_does_not_abort_other_sources(self):
+        sources = [{"name": "broken", "kind": "rss", "url": self.base + "/truncated"},
+                   {"name": "good", "kind": "rss", "url": self.base + "/good"}]
+        with contextlib.redirect_stderr(io.StringIO()):
+            report = collect(sources, 72, self.store, self.client)
+        self.assertEqual([source["ok"] for source in report["sources"]], [False, True])
+        self.assertIn("网络请求失败", report["sources"][0]["error"])
+        self.assertEqual(sum(path == "/truncated" for path, _ in self.requests), 2)
+        self.assertTrue(self.store.search("GPU"))
+
+    def test_cross_source_duplicates_match_saved_and_exported_content(self):
+        sources = [{"name": name, "kind": "rss", "url": self.base + "/" + name}
+                   for name in ("first", "second")]
+        with contextlib.redirect_stderr(io.StringIO()):
+            report = collect(sources, 72, self.store, self.client)
+        row, = [item for item in report["items"] if item["url"].endswith("?version=2")]
+        saved, = [item for item in self.store.search() if item["url"] == row["url"]]
+        self.assertEqual(row["title"], "first")
+        self.assertEqual((saved["title"], saved["source"], saved["description"]),
+                         (row["title"], row["source"], row["description"]))
+        self.assertEqual(report["new_count"], report["count"])
+
     def test_json_query_sends_configured_put_body(self):
         config = self.directory / "modelscope.json"
         config.write_text(json.dumps({"window_hours": 8760, "sources": [{
@@ -228,7 +296,7 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(self.put_requests, [{"Path": "ExampleOrg", "PageNumber": 1, "PageSize": 20}])
         row, = json.loads(stdout.getvalue())["items"]
-        self.assertEqual(row["published"], "2026-11-09T02:00:00+00:00")
+        self.assertEqual(row["published"], self.published_at.isoformat(timespec="seconds"))
 
     def test_cli_collect_repeat_and_local_search(self):
         config = self.directory / "sources.json"

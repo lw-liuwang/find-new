@@ -57,9 +57,11 @@ def collect(sources, hours, store, client):
             statuses.append({"name": name, "ok": False, "count": 0, "error": str(error)})
             print(f"[失败] {name}: {error}", file=sys.stderr)
             continue
-        new_count += store.save(rows, timestamp)
-        for row in rows:
-            items.setdefault(row["url"], row)
+        # Choose the first configured source before persisting or exporting duplicates.
+        unique_rows = [row for row in rows if row["url"] not in items]
+        new_count += store.save(unique_rows, timestamp)
+        for row in unique_rows:
+            items[row["url"]] = row
         statuses.append({"name": name, "ok": True, "count": len(rows), "error": ""})
         print(f"[成功] {name}: {len(rows)} 条", file=sys.stderr)
     rows = sorted(items.values(), key=lambda item: item["published"] or timestamp, reverse=True)
@@ -70,27 +72,35 @@ def collect(sources, hours, store, client):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="搜索新闻、采集公开订阅和 JSON API，并在本地去重保存。")
     commands = parser.add_subparsers(dest="command", required=True)
-    batch = commands.add_parser("collect", help="采集配置中的全部启用来源")
-    batch.add_argument("--config", type=Path, default=Path("sources.json"))
-    search = commands.add_parser("search", help="通过 Google News 搜索公开新闻并保存")
+    formatter = argparse.ArgumentDefaultsHelpFormatter
+    check = commands.add_parser("check", help="离线检查来源配置", formatter_class=formatter)
+    batch = commands.add_parser("collect", help="采集配置中的全部启用来源", formatter_class=formatter)
+    for command in (check, batch):
+        command.add_argument("--config", type=Path, default=Path("sources.json"), help="来源配置 JSON 文件")
+    search = commands.add_parser("search", help="通过 Google News 搜索公开新闻并保存", formatter_class=formatter)
     search.add_argument("query", help="关键词，支持 Google News 搜索语法")
-    search.add_argument("--days", type=positive_int, default=3)
-    search.add_argument("--language", default="zh-CN")
-    search.add_argument("--region", default="CN")
-    local = commands.add_parser("list", help="查询已保存的结果，不访问网络")
+    search.add_argument("--days", type=positive_int, default=3, help="搜索最近多少天的内容")
+    search.add_argument("--language", default="zh-CN", help="新闻语言，如 zh-CN 或 en-US")
+    search.add_argument("--region", default="CN", help="新闻地区，如 CN 或 US")
+    local = commands.add_parser("list", help="查询已保存的结果，不访问网络", formatter_class=formatter)
     local.add_argument("--query", default="", help="在标题、描述和来源中匹配文本")
-    local.add_argument("--limit", type=positive_int, default=50)
+    local.add_argument("--limit", type=positive_int, default=50, help="最多显示条数")
     for command in (batch, search, local):
-        command.add_argument("--db", type=Path, default=Path("data/find-new.sqlite3"))
-        command.add_argument("--format", choices=("json", "markdown"), default="json")
+        command.add_argument("--db", type=Path, default=Path("data/find-new.sqlite3"), help="SQLite 数据库文件")
+        command.add_argument("--format", choices=("json", "markdown"), default="json", help="标准输出格式")
     for command in (batch, search):
-        command.add_argument("--output-dir", type=Path, default=Path("data"))
+        command.add_argument("--output-dir", type=Path, default=Path("data"), help="本轮 JSON 和 Markdown 的输出目录")
     args = parser.parse_args(argv)
 
     # Validate configuration before opening or creating the database.
     config = None
-    if args.command == "collect":
+    if args.command in {"collect", "check"}:
         config = load_config(args.config)
+    if args.command == "check":
+        print(json.dumps({"config": str(args.config), "sources": len(config["sources"]),
+                          "enabled_sources": sum(source.get("enabled", True) for source in config["sources"]),
+                          "window_hours": config.get("window_hours", 72)}, ensure_ascii=False, indent=2))
+        return 0
     if args.command == "search" and not args.query.strip():
         parser.error("搜索关键词不能为空")
     store = Store(args.db)

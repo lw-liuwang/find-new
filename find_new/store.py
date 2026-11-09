@@ -51,7 +51,7 @@ class Store:
                 )
                 new += cursor.rowcount
                 self.connection.execute(
-                    """UPDATE items SET title = :title, description = :description,
+                    """UPDATE items SET source = :source, title = :title, description = :description,
                        published = COALESCE(:published, published), last_seen = :now
                        WHERE url = :url""", {**item, "now": now},
                 )

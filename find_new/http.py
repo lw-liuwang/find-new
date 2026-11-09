@@ -1,5 +1,6 @@
 """Small HTTP client with caching, host pacing and bounded retries."""
 
+import http.client
 import json
 import time
 import urllib.error
@@ -75,7 +76,7 @@ class Client:
                 if delay > self.max_retry_wait:
                     raise FetchError(f"HTTP {status}：服务要求等待 {delay:.0f} 秒，本次跳过") from None
                 time.sleep(delay)
-            except (urllib.error.URLError, TimeoutError, OSError) as error:
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
                 if attempt:
                     raise FetchError(f"网络请求失败：{error}") from None
                 time.sleep(3)
