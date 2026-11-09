@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Project releases</title>
+  <entry>
+    <title>v1.2.0</title>
+    <link rel="self" href="https://api.example.com/releases/12" />
+    <link rel="alternate" href="https://example.com/releases/v1.2.0" />
+    <summary type="html">&lt;p&gt;Faster inference.&lt;/p&gt;</summary>
+    <published>2026-11-08T08:00:00Z</published>
+    <updated>2026-11-09T08:00:00Z</updated>
+  </entry>
+</feed>

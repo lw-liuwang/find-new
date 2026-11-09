@@ -1,0 +1,18 @@
+{
+  "Code": 200,
+  "Success": true,
+  "Data": {
+    "TotalCount": 2,
+    "Models": [
+      {
+        "Path": "ExampleOrg",
+        "Name": "Test-Model",
+        "Description": "Efficient attention",
+        "Downloads": 123,
+        "Stars": 4,
+        "LastUpdatedTime": 1794189600
+      },
+      {"Path": "ExampleOrg", "LastUpdatedTime": 1794189600}
+    ]
+  }
+}

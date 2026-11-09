@@ -1,0 +1,42 @@
+{
+  "window_hours": 72,
+  "sources": [
+    {
+      "name": "AI 推理与算力新闻",
+      "kind": "google_news",
+      "query": "\"GPU kernel\" OR \"TPU\" OR \"inference optimization\"",
+      "language": "en-US",
+      "region": "US"
+    },
+    {
+      "name": "vLLM Releases",
+      "kind": "rss",
+      "url": "https://github.com/vllm-project/vllm/releases.atom"
+    },
+    {
+      "name": "ModelScope 新闻",
+      "kind": "google_news",
+      "query": "ModelScope OR 魔搭",
+      "language": "zh-CN",
+      "region": "CN"
+    },
+    {
+      "name": "ModelScope · Qwen 模型更新",
+      "kind": "json",
+      "url": "https://modelscope.ai/api/v1/models",
+      "method": "PUT",
+      "body": {
+        "Path": "Qwen",
+        "PageNumber": 1,
+        "PageSize": 20
+      },
+      "items_path": "Data.Models",
+      "fields": {
+        "title": "{Path}/{Name}",
+        "url": "https://modelscope.ai/models/{Path}/{Name}",
+        "description": "{Description} · 下载 {Downloads} · 收藏 {Stars}",
+        "published": "LastUpdatedTime"
+      }
+    }
+  ]
+}

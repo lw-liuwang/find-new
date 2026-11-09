@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <item rdf:about="https://arxiv.org/abs/2611.00001">
+    <title>A useful paper</title>
+    <description>Research summary.</description>
+    <dc:date>2026-11-09T00:00:00Z</dc:date>
+  </item>
+</rdf:RDF>

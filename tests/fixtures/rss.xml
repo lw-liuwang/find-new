@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>Example News</title>
+  <item>
+    <title>Inference &amp; GPU update</title>
+    <link>https://example.com/news?utm_source=feed&amp;version=2</link>
+    <description><![CDATA[<p>A <b>new kernel</b> with lower latency.</p>]]></description>
+    <pubDate>Mon, 09 Nov 2026 01:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>An old article</title>
+    <link>https://example.com/old</link>
+    <description>Historical context.</description>
+    <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>Without a date</title>
+    <link>https://example.com/undated</link>
+  </item>
+</channel></rss>

@@ -1,0 +1,40 @@
+name: Collect
+
+on:
+  schedule:
+    # 08:17 Asia/Shanghai; GitHub may queue scheduled jobs.
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collection
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: data/find-new.sqlite3
+          key: find-new-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            find-new-${{ github.ref_name }}-
+      - name: Collect configured sources
+        run: python -m find_new collect
+      - name: Save collection results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: find-new-${{ github.run_id }}
+          path: data/
+          if-no-files-found: warn
+          retention-days: 30
